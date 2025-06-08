@@ -1,12 +1,17 @@
+global:
+  ask_for_username: false
+  ask_for_password: false
+
 device:
-    csr1000v:
-        device_type: cisco_xe
-        ip: 10.0.0.112
+    switch1:
+        device_type: cisco_ios
+        ip: 192.168.0.244
         username: admin
         password: admin
         port: 22
         secret: admin
     csr1000v_without_enable:
+        disable: true
         device_type: cisco_xe
         ip: 10.0.0.111
         username: admin

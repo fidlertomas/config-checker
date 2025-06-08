@@ -2,15 +2,27 @@
 global_commands:
   - hostname
   - logging host
+interface_types:
+  - access:
+      - body_contains: switchport mode access
+  - trunk:
+      - body_contains: switchport mode trunk
+  - routed:
+      - body_contains: no switchport
+  - loopback:
+      - name_contains: loopback
+  - vlan:
+      - name_contains: vlan
+  - port-channel:
+      - name_contains: port-channel
 interface_commands:
   - switchport mode access
   - switchport access vlan
-  - ip address dhcp
-uplink_interface_commands:
+trunk_interface_commands:
   - switchport nonegotiate
   - ip dhcp snooping trust
 interface_exclude:
-  - Gigabitethernet0/0
+  - Gigabitethernet 1/0
   - Loop10
 show_commands:
      version:

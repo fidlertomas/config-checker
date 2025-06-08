@@ -1,43 +1,50 @@
-import os
-import sys
 import re
-import yaml
-import json
-import logging
 from prettytable import PrettyTable
 
-def func_check_global_export(content,baseline_config,options):
 
+def func_check_global_export(
+    configuration: str, baseline_config_global: dict, log_failed_only=False
+):
+    """Function to check if specific commands are in the content.
+    Args:
+        content (str): Configuration content to check
+        baseline_config (dict): dictionary with commands to check in the content
+        log_failed_only (bool, optional): Notice just FAILed tests. Defaults to False.
+
+    Returns:
+        dict : Dictionary with global commands and their results
+    """
     dict_global = {}
 
-    if "global_commands" in baseline_config:
-        for global_command in baseline_config['global_commands']:
-            global_pattern = r"(?m)^"+ global_command
+    for global_command in baseline_config_global:
+        global_pattern = r"(?m)^" + global_command
 
-            result = re.search(global_pattern,content)
-            if result:
-                if options['failed_only'] == False:
-                    dict_global[global_command] = {"RESULT": "PASS"}
-            else:
-                dict_global[global_command] = {"RESULT": "FAIL"}
+        result = re.search(global_pattern, configuration)
+        if result:
+            if not log_failed_only:
+                dict_global[global_command] = {"RESULT": "PASS"}
+        else:
+            dict_global[global_command] = {"RESULT": "FAIL"}
 
     return dict_global
 
-def  func_check_interface_export(content,baseline_config,options):
+
+def func_check_interface_export(content, baseline_config, log_failed_only=False):
     ###########################################
     # function to parse interface commands
     ###########################################
-    dict_type = {}
 
-    #or is not working as it should work
-    if ("interface_commands" in baseline_config) or  ("uplink_interface_commands" in baseline_config) :
-        
+    # or is not working as it should work
+    if ("interface_commands" in baseline_config) or (
+        "trunk_interface_commands" in baseline_config
+    ):
+
         # defining regex search pattern
         pattern_interface_block = r"(?m)^interface[^!]*"
 
         # get all interface config blocks
-        interfaces = re.findall(pattern_interface_block,content,re.DOTALL)
-        
+        interfaces = re.findall(pattern_interface_block, content, re.DOTALL)
+
         dict_interfaces = {}
         dict_interfaces_excluded = {}
         dict_interfaces_trunk = {}
@@ -45,234 +52,242 @@ def  func_check_interface_export(content,baseline_config,options):
         # loop through interface blocks
         for interface in interfaces:
             # get interface name via regex
-            interface_name = re.match("interface.*",interface)
 
-            # create dictionaries
+            interface_name = get_interface_name(interface)
             dict_interface = {}
             dict_command = {}
-            
-            exclude_interface = False
-            # check if interface is excluded and set flag
-            if ("interface_exclude" in baseline_config):
-                for exclude in baseline_config['interface_exclude']:
-                    #print("Match: " + exclude + " against " + interface_name[0])
-                    if re.findall(exclude,interface_name[0]):
-                        #print("Match found")
-                        exclude_interface = True
-            
-            #check if interface is trunk and set flag
-            trunk_mode_interface = re.search("switchport mode trunk",interface)
+
+            exclude_interface = ("interface_exclude" in baseline_config) and (
+                is_interface_excluded(
+                    baseline_config["interface_exclude"], interface_name
+                )
+            )
+
+            # check if interface is trunk and set flag
+            trunk_mode_interface = re.search("switchport mode trunk", interface)
             if trunk_mode_interface:
                 trunk_interface = True
             else:
-                trunk_interface = False 
+                trunk_interface = False
 
-            
             # this is where the magic happens
             if exclude_interface:
-                if options['failed_only'] == False:
-                    dict_interfaces_excluded[interface_name[0][10:]] = {}
-                    #break
-                
-            elif trunk_interface == True:
-                for command in baseline_config['uplink_interface_commands']:
-                    #check if command is there
-                    result = re.search(command,interface)
+                dict_interfaces_excluded[interface_name[10:]] = {}
+                # break
+
+            elif trunk_interface is True:
+                for command in baseline_config["trunk_interface_commands"]:
+                    # check if command is there
+                    result = re.search(command, interface)
                     if result:
-                        if options['failed_only'] == False:
+                        if log_failed_only is False:
                             dict_command[command] = {"RESULT": "PASS"}
                     else:
                         dict_command[command] = {"RESULT": "FAIL"}
-                dict_interface["TESTS"]=dict_command
-                dict_interface["RAW_DATA"]=interface
-                dict_interfaces_trunk[interface_name[0][10:]] = dict_interface
-                
+                dict_interface["TESTS"] = dict_command
+                dict_interface["RAW_DATA"] = interface
+                dict_interfaces_trunk[interface_name[10:]] = dict_interface
+
             else:
                 if "interface_commands" in baseline_config:
-                    for command in baseline_config['interface_commands']:
-                        
-                        #check if command is there
-                        result = re.search(command,interface)
+                    for command in baseline_config["interface_commands"]:
+
+                        # check if command is there
+                        result = re.search(command, interface)
                         if result:
-                            if options['failed_only'] == False:
+                            if log_failed_only is False:
                                 dict_command[command] = {"RESULT": "PASS"}
                         else:
                             dict_command[command] = {"RESULT": "FAIL"}
-            
+
                     # entry in json for each interface
-                    dict_interface["TESTS"]=dict_command
-                    dict_interface["RAW_DATA"]=interface
-                    dict_interfaces[interface_name[0][10:]] = dict_interface
-        
-        dict_type["ACCESS"]= dict_interfaces
-        dict_type["TRUNK"]=dict_interfaces_trunk
-        dict_type["EXCLUDED"]= dict_interfaces_excluded
-        
+                    dict_interface["TESTS"] = dict_command
+                    dict_interface["RAW_DATA"] = interface
+                    dict_interfaces[interface_name[10:]] = dict_interface
+
+        dict_type = {
+            "ACCESS": dict_interfaces,
+            "TRUNK": dict_interfaces_trunk,
+            "EXCLUDED": dict_interfaces_excluded,
+        }
     return dict_type
 
-def func_check_data(content,baseline_config,options):
- 
+
+def is_interface_excluded(excluded_interfaces, interface_name):
+    exclude_interface = False
+    for exclude in excluded_interfaces:
+        if re.findall(exclude, interface_name):
+            exclude_interface = True
+    return exclude_interface
+
+
+def get_interface_name(interface):
+    interface_name = re.match("interface.*", interface)
+    interface_name = interface_name.group(0) if interface_name else "interface unknown"
+
+    return interface_name
+
+
+def func_check_data(device_configuration, baseline_config, log_failed_only=False):
+
     dict_data = {}
 
-    global_dict = func_check_global_export(content,baseline_config,options)
-    #print(global_dict)
-    
-    interface_dict = func_check_interface_export(content,baseline_config,options)
-    #print(interface_dict)
+    if "global_commands" in baseline_config:
+        global_dict = func_check_global_export(
+            device_configuration, baseline_config["global_commands"], log_failed_only
+        )
+    else:
+        global_dict = {}
+    # print(global_dict)
 
-    dict_data["GLOBAL"]=global_dict
-    dict_data["INTERFACES"]=interface_dict
+    interface_dict = func_check_interface_export(
+        device_configuration, baseline_config, log_failed_only
+    )
+    # print(interface_dict)
+
+    dict_data["GLOBAL"] = global_dict
+    dict_data["INTERFACES"] = interface_dict
 
     return dict_data
 
-def func_get_arguments():
-    ###########################################
-    # function to get command line arguments
-    ###########################################
 
-    i=0
-    # define dict to hold options / command line switches
-    options={}
+def func_check_show(show_command_output, baseline_config, log_failed_only=False):
 
-    # default values for optional switches
-    options['failed_only']=False
-    options['reporting']=False
-    options['logging']=False
-
-    #parse through arguments and fill citionary with value pairs
-    for argument in sys.argv:
-        i=i+1
-        if argument == "-d":
-            options['directory'] = sys.argv[i]
-        elif argument == "-b":
-            options['baseline_yaml'] = sys.argv[i]
-        elif argument == "-c":
-            options['connection_yaml'] = sys.argv[i]
-        elif argument == "-f":
-            options['failed_only']=True
-        elif argument == "-r":
-            options['reporting']= sys.argv[i]
-        elif argument == "-l":
-            options['logging']= sys.argv[i]
-    
-
-    if "baseline_yaml" not in options:  
-        print("-b is mandatory")
-        #TODO print available options
-        sys.exit()
-    else:
-        if "connection_yaml" in options:
-            return options
-        elif "directory" in options:
-            return options
-        else:    
-            print("-d (offline mode) or -c (online mode) is mandatory")
-            sys.exit()
-
-
-def func_check_show(show_command_output,baseline_config,options):
-    
     result_show = {}
 
     if "show_commands" in baseline_config:
-        for show_commands in baseline_config['show_commands']:
-        
+        for show_commands in baseline_config["show_commands"]:
+
             result_show[show_commands] = {}
             result_show[show_commands]["TESTS"] = {}
 
-  
-            for test in baseline_config['show_commands'][show_commands]:
-                result = re.findall(test,show_command_output[show_commands],re.DOTALL)
+            for test in baseline_config["show_commands"][show_commands]:
+                result = re.findall(test, show_command_output[show_commands], re.DOTALL)
                 if result:
-                    if options['failed_only'] == False:
-                        result_show[show_commands]["TESTS"][test] = { "Result" : "PASS"}
+                    if log_failed_only is False:
+                        result_show[show_commands]["TESTS"][test] = {"Result": "PASS"}
                 else:
-                    result_show[show_commands]["TESTS"][test]= { "Result" : "FAIL"}
+                    result_show[show_commands]["TESTS"][test] = {"Result": "FAIL"}
 
-            result_show[show_commands]["RAW_DATA"]=show_command_output[show_commands]
+            result_show[show_commands]["RAW_DATA"] = show_command_output[show_commands]
 
-    
     return result_show
+
 
 def func_check_device_info(device_info):
     info = {}
 
-    #check model number
-    result = re.findall("Model Number.*",device_info)
+    # check model number
+    result = re.findall("Model Number.*", device_info)
 
     if result:
         model = result[0]
-        info["MODEL"] = model[model.rfind(":")+2:]
+        info["MODEL"] = model[(model.rfind(":") + 2) :]
     else:
         info["MODEL"] = "UNKNOWN"
 
     return info
 
-def func_print_database(data,options,a_logger):
 
-    #print file or device
-    for section in data:
-        for device in data[section]:
+def func_print_database(data, options, a_logger):
+
+    # print file or device
+    for section, section_data in data.items():
+        print("############################")
+        print("#### " + section)
+        for device, device_data in section_data.items():
             a_logger.info("\n############################")
-            a_logger.info("#### "+device)
-            
-            if data[section][device] == "ERROR":
+            a_logger.info("#### " + device)
+
+            if device_data == "ERROR":
                 a_logger.info("############################")
                 a_logger.info("Device was offline or other error occured !")
             else:
-                a_logger.info("#### Type: " + data[section][device]["DEVICE_INFO"]["MODEL"])
+                # TODO: row is failing :
+                # a_logger.info("#### Type: " + device_data["DEVICE_INFO"]["MODEL"])
                 a_logger.info("############################")
-                table = PrettyTable()
-                table.field_names = ["scope","command","type","result"]
-
-                #print global section
-                if "GLOBAL" in data[section][device]:
-                    rows=False
-                    for section2 in data[section][device]["GLOBAL"]:
-                        for command in data[section][device]["GLOBAL"][section2]:
-                            table.add_row(["GLOBAL",section2,"GLOBAL",data[section][device]["GLOBAL"][section2][command]])
-                            rows=True
-                    
-                    if rows:
-                        table.add_row(["","","",""])
-                    
-
-                if "INTERFACES" in data[section][device]:
-                    rows=False   
-                    for interface_types in data[section][device]["INTERFACES"]:     
-                        if interface_types == "EXCLUDED":
-                            for interface_name in data[section][device]["INTERFACES"][interface_types]:                           
-                                table.add_row([interface_name,"","","EXCLUDED"])
-                                rows=True
-                        elif interface_types == "ACCESS":
-                            for interface_name in data[section][device]["INTERFACES"][interface_types]:
-                                for section3 in data[section][device]["INTERFACES"][interface_types][interface_name]:
-                                    if section3 == "TESTS":
-                                        for commands in data[section][device]["INTERFACES"][interface_types][interface_name][section3]:
-                                            table.add_row([interface_name,commands,"ACCESS",data[section][device]["INTERFACES"][interface_types][interface_name][section3][commands]["RESULT"]])
-                                            rows=True
-                        else:
-                            for interface_name in data[section][device]["INTERFACES"][interface_types]:
-                                for section3 in data[section][device]["INTERFACES"][interface_types][interface_name]:
-                                    if section3 == "TESTS":
-                                        for commands in data[section][device]["INTERFACES"][interface_types][interface_name][section3]:
-                                            table.add_row([interface_name,commands,"TRUNK",data[section][device]["INTERFACES"][interface_types][interface_name][section3][commands]["RESULT"]])
-                                            rows=True
-                    
-                    if rows: 
-                        table.add_row(["","","",""])
-
-                if "SHOW_COMMANDS" in data[section][device]:
-                    
-                    for show_commands in data[section][device]["SHOW_COMMANDS"]:
-                        for sections in data[section][device]["SHOW_COMMANDS"][show_commands]:
-                            
-                            if sections == "TESTS":
-                                for test in data[section][device]["SHOW_COMMANDS"][show_commands][sections]:
-                                    table.add_row([show_commands,test,"SHOW",data[section][device]["SHOW_COMMANDS"][show_commands][sections][test]["Result"]])
-
-                a_logger.info(table)
+                print_table_data(a_logger, device_data)
             a_logger.info("\n")
+
+
+def print_table_data(a_logger, device_data):
+    table = PrettyTable()
+    table.field_names = ["scope", "command", "type", "result"]
+
+    # print global section
+    if "GLOBAL" in device_data:
+        rows = False
+        for global_section, global_data in device_data["GLOBAL"].items():
+            for command in global_data:
+                table.add_row(
+                    [
+                        "GLOBAL",
+                        global_section,
+                        "GLOBAL",
+                        global_data[command],
+                    ]
+                )
+                rows = True
+
+        if rows:
+            table.add_row(["", "", "", ""])
+
+    if "INTERFACES" in device_data:
+        rows = False
+        for interface_types, interface_data in device_data["INTERFACES"].items():
+            if interface_types == "EXCLUDED":
+                for interface_name in interface_data:
+                    table.add_row([interface_name, "", "", "EXCLUDED"])
+                    rows = True
+            elif interface_types == "ACCESS":
+                for interface_name in interface_data:
+                    rows = insert_interface_data(
+                        table, interface_data, interface_name, "ACCESS"
+                    )
+            else:
+                for interface_name in interface_data:
+                    rows = insert_interface_data(
+                        table, interface_data, interface_name, "TRUNK"
+                    )
+
+        if rows:
+            table.add_row(["", "", "", ""])
+
+    if "SHOW_COMMANDS" in device_data:
+        for show_commands in device_data["SHOW_COMMANDS"]:
+            for sections in device_data["SHOW_COMMANDS"][show_commands]:
+                if sections == "TESTS":
+                    for test in device_data["SHOW_COMMANDS"][show_commands][sections]:
+                        table.add_row(
+                            [
+                                show_commands,
+                                test,
+                                "SHOW",
+                                device_data["SHOW_COMMANDS"][show_commands][sections][
+                                    test
+                                ]["Result"],
+                            ]
+                        )
+
+    a_logger.info(table)
+
+
+def insert_interface_data(table, interface_data, interface_name, type="TRUNK"):
+    rows = False
+    for section3, section_items in interface_data[interface_name].items():
+        if section3 == "TESTS":
+            for commands in section_items:
+                table.add_row(
+                    [
+                        interface_name,
+                        commands,
+                        type,
+                        section_items[commands]["RESULT"],
+                    ]
+                )
+                rows = True
+    return rows
+
 
 def banner(a_logger):
     a_logger.info("############################################")
