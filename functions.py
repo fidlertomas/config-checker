@@ -164,7 +164,7 @@ def func_check_show(show_command_output, baseline_config, log_failed_only=False)
             for test in baseline_config["show_commands"][show_commands]:
                 result = re.findall(test, show_command_output[show_commands], re.DOTALL)
                 if result:
-                    if log_failed_only is False:
+                    if not log_failed_only:
                         result_show[show_commands]["TESTS"][test] = {"Result": "PASS"}
                 else:
                     result_show[show_commands]["TESTS"][test] = {"Result": "FAIL"}
@@ -182,7 +182,8 @@ def func_check_device_info(device_info):
 
     if result:
         model = result[0]
-        info["MODEL"] = model[(model.rfind(":") + 2) :]
+        index = model.rfind(":") + 2
+        info["MODEL"] = model[index:]
     else:
         info["MODEL"] = "UNKNOWN"
 
@@ -203,94 +204,87 @@ def func_print_database(data, options, a_logger):
                 a_logger.info("############################")
                 a_logger.info("Device was offline or other error occured !")
             else:
-                # TODO: row is failing :
+                # TODO: this is failing for file based config:
                 # a_logger.info("#### Type: " + device_data["DEVICE_INFO"]["MODEL"])
                 a_logger.info("############################")
-                print_table_data(a_logger, device_data)
+                print(create_list_table(device_data))
             a_logger.info("\n")
 
 
-def print_table_data(a_logger, device_data):
-    table = PrettyTable()
-    table.field_names = ["scope", "command", "type", "result"]
+def create_list_table(device_data):
 
-    # print global section
-    if "GLOBAL" in device_data:
-        rows = False
-        for global_section, global_data in device_data["GLOBAL"].items():
-            for command in global_data:
-                table.add_row(
-                    [
-                        "GLOBAL",
-                        global_section,
-                        "GLOBAL",
-                        global_data[command],
-                    ]
-                )
-                rows = True
+    def list_of_interface_data(interface_data, interface_name, type="TRUNK"):
+        list_of_rows = []
+        for section, section_items in interface_data[interface_name].items():
+            if section == "TESTS":
+                for commands in section_items:
+                    list_of_rows.append(
+                        [
+                            interface_name,
+                            commands,
+                            type,
+                            section_items[commands]["RESULT"],
+                        ]
+                    )
+        return list_of_rows
 
+    def global_rows(global_data):
+        rows = []
+        for section, commands in global_data.items():
+            for command, result in commands.items():
+                rows.append(["GLOBAL", section, "GLOBAL", result])
         if rows:
-            table.add_row(["", "", "", ""])
+            rows.append(["", "", "", ""])
+        return rows
+
+    def interface_rows(interface_data):
+        rows = []
+        for intf_type, intf_dict in interface_data.items():
+            if intf_type == "EXCLUDED":
+                rows.extend([[name, "", "", "EXCLUDED"] for name in intf_dict])
+            else:
+                for name in intf_dict:
+                    rows.extend(list_of_interface_data(intf_dict, name, intf_type))
+        if rows:
+            rows.append(["", "", "", ""])
+        return rows
+
+    def show_command_rows(show_data):
+        rows = []
+        for show_cmd, show_cmd_data in show_data.items():
+            tests = show_cmd_data.get("TESTS")
+            if tests:
+                for test, result in tests.items():
+                    rows.append([show_cmd, test, "SHOW", result["Result"]])
+            else:
+                raise ValueError(
+                    "Unknown section in SHOW_COMMANDS: ", show_cmd_data.keys()
+                )
+        return rows
+
+    list_of_rows = []
+
+    if "GLOBAL" in device_data:
+        list_of_rows.extend(global_rows(device_data["GLOBAL"]))
 
     if "INTERFACES" in device_data:
-        rows = False
-        for interface_types, interface_data in device_data["INTERFACES"].items():
-            if interface_types == "EXCLUDED":
-                for interface_name in interface_data:
-                    table.add_row([interface_name, "", "", "EXCLUDED"])
-                    rows = True
-            elif interface_types == "ACCESS":
-                for interface_name in interface_data:
-                    rows = insert_interface_data(
-                        table, interface_data, interface_name, "ACCESS"
-                    )
-            else:
-                for interface_name in interface_data:
-                    rows = insert_interface_data(
-                        table, interface_data, interface_name, "TRUNK"
-                    )
-
-        if rows:
-            table.add_row(["", "", "", ""])
+        list_of_rows.extend(interface_rows(device_data["INTERFACES"]))
 
     if "SHOW_COMMANDS" in device_data:
-        for show_commands in device_data["SHOW_COMMANDS"]:
-            for sections in device_data["SHOW_COMMANDS"][show_commands]:
-                if sections == "TESTS":
-                    for test in device_data["SHOW_COMMANDS"][show_commands][sections]:
-                        table.add_row(
-                            [
-                                show_commands,
-                                test,
-                                "SHOW",
-                                device_data["SHOW_COMMANDS"][show_commands][sections][
-                                    test
-                                ]["Result"],
-                            ]
-                        )
+        list_of_rows.extend(show_command_rows(device_data["SHOW_COMMANDS"]))
 
-    a_logger.info(table)
-
-
-def insert_interface_data(table, interface_data, interface_name, type="TRUNK"):
-    rows = False
-    for section3, section_items in interface_data[interface_name].items():
-        if section3 == "TESTS":
-            for commands in section_items:
-                table.add_row(
-                    [
-                        interface_name,
-                        commands,
-                        type,
-                        section_items[commands]["RESULT"],
-                    ]
-                )
-                rows = True
-    return rows
+    table = PrettyTable(["scope", "command", "type", "result"])
+    for row in list_of_rows:
+        table.add_row(row)
+    return table
 
 
 def banner(a_logger):
     a_logger.info("############################################")
+    a_logger.info("### config checker v0.4                 ####")
+    a_logger.info("### Tomas Fidler                        ####")
+    a_logger.info("### github.com/fidlertomas/config-checker ##")
+    a_logger.info("############forked from ####################")
     a_logger.info("### config checker v0.3                 ####")
     a_logger.info("### Paul Freitag                        ####")
     a_logger.info("### github.com/catachan/config-checker  ####")

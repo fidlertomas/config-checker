@@ -15,7 +15,7 @@ pyaml==20.4.0
 ## Installation
 
 ``` 
-git clone https://github.com/catachan/config-checker.git
+git clone https://github.com/fidlertomas/config-checker.git
 cd config-checker
 ```
 
